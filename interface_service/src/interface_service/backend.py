@@ -1,4 +1,4 @@
-"""Backends that actually execute a test. The simulated one is used until the platform is connected."""
+"""Backends executing a test: the real platform, its simulation (sim/backend.py) and a dummy for unit tests."""
 
 import asyncio
 import logging
@@ -53,9 +53,13 @@ class PlatformBackend(Backend):
     async def _run_process(
         self, run_id: str, protocol_name: str, request: TestRequest, out_dir: Path
     ) -> list[tuple[int, Path]]:
-        """Add the generated process to the orchestrator, wait until it has ended, collect the images."""
+        """Generate the process, let it run and return the images."""
         source = generate_process_source(run_id, request, self._process_parameters(protocol_name))
         (out_dir / "process.py").write_text(source)
+        return await self._execute_process(source, out_dir)
+
+    async def _execute_process(self, source: str, out_dir: Path) -> list[tuple[int, Path]]:
+        """Add the process to the orchestrator, wait until it has ended, collect the images."""
         raise NotImplementedError("orchestrator integration not implemented yet")
 
     def _process_parameters(self, protocol_name: str) -> ProcessParameters:
@@ -75,7 +79,9 @@ class PlatformBackend(Backend):
         if self._bluewasher is None:
             from sila2.client import SilaClient
 
-            self._bluewasher = SilaClient.discover(server_name=self.settings.bluewasher_server_name, insecure=True, timeout=10)
+            self._bluewasher = SilaClient.discover(
+                server_name=self.settings.bluewasher_server_name, insecure=True, timeout=10
+            )
         return self._bluewasher
 
 
@@ -85,7 +91,9 @@ def protocol_lines(protocol: str) -> list[str]:
     return [line for line in stripped if line and not line.startswith("#")]
 
 
-class SimulatedBackend(Backend):
+class DummyBackend(Backend):
+    """Minimal backend for unit tests: waits per wash and writes placeholder images."""
+
     def __init__(self, seconds_per_wash: float):
         self.seconds_per_wash = seconds_per_wash
 

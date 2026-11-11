@@ -3,23 +3,23 @@
 Example for test(protocol=..., n_washes=3, coverage_checks=[1]) using protocol name washopt_0 (and Squid1).
 """
 
-from lab_adaption.processes.basic_process import BasicProcess
+from interface_service.process_base import WashingProcess
 
 
-class WashOpt_abc123(BasicProcess):
+class WashOpt_abc123(WashingProcess):
     def __init__(self):
-        super().__init__(num_plates=1, process_name='WashOpt_abc123')
+        super().__init__(process_name='WashOpt_abc123')
 
     def init_service_resources(self):
         super().init_service_resources()
-        self.containers[0].set_start_position(self.hotel2, 0)
+        self.plate.set_start_position(self.hotel2, 0)
 
     def process(self):
         n_washes = 3
         # washes after which the coverage is checked (there is always one before the first wash, too)
         coverage_checks = [1, 3]
 
-        cont = self.containers[0]
+        cont = self.plate
         self.robot_arm.move(cont, self.squid1, lidded=False, read_barcode=True)
         self.squid1.run_protocol(labware=cont, protocol='coverage_check', project='washing_optimization')
         for wash in range(1, n_washes + 1):

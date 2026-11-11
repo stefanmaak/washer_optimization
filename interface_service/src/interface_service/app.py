@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.staticfiles import StaticFiles
 
-from interface_service.backend import PlatformBackend, SimulatedBackend
+from interface_service.backend import Backend, DummyBackend, PlatformBackend
 from interface_service.config import Settings
 from interface_service.models import (
     Capacity,
@@ -25,10 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         store = RunStore(settings.db_path)
-        if settings.simulate:
-            backend = SimulatedBackend(settings.sim_seconds_per_wash)
-        else:
-            backend = PlatformBackend(settings)
+        backend = _create_backend(settings)
         runner = Runner(store, backend, settings.image_dir, settings.max_parallel)
         app.state.store = store
         app.state.runner = runner
@@ -78,3 +75,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return RunResult(run_id=run_id, images=images)
 
     return app
+
+
+def _create_backend(settings: Settings) -> Backend:
+    if settings.mode == "dummy":
+        return DummyBackend(settings.dummy_seconds_per_wash)
+    if settings.mode == "sim":
+        # imported only here: the simulation needs the lab packages (scheduler, orchestrator, pythonLab, dash)
+        from interface_service.sim.backend import SimBackend
+        from interface_service.sim.gui import start_gui
+        from interface_service.sim.lab import SimLab
+        from interface_service.sim.mock_chris import MockChris
+
+        lab = SimLab(settings.sim, settings.empty_check_protocol, settings.coverage_check_protocol)
+        lab.start()
+        start_gui(lab, MockChris(settings.sim.service_url, seed=settings.sim.seed), settings.sim)
+        return SimBackend(settings, lab)
+    return PlatformBackend(settings)

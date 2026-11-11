@@ -3,12 +3,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from interface_service import Settings, create_app
+from interface_service.app import create_app
+from interface_service.config import Settings
 
 
 @pytest.fixture
 def client(tmp_path):
-    settings = Settings(data_dir=tmp_path, max_parallel=2, sim_seconds_per_wash=0.01)
+    settings = Settings(data_dir=tmp_path, mode="dummy", max_parallel=2, dummy_seconds_per_wash=0.01)
     with TestClient(create_app(settings)) as c:
         yield c
 

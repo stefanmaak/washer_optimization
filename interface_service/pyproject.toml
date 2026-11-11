@@ -16,6 +16,9 @@ dependencies = [
 [project.optional-dependencies]
 client = ["httpx>=0.27"]
 platform = ["sila2>=0.12"]
+# --sim additionally needs labscheduler (CP-Solver), laborchestrator, pythonlab and bluewasher_sila (mock Chris)
+# from the lab automation workspace
+sim = ["dash>=2.14", "plotly>=5", "numpy", "pyyaml", "networkx", "httpx>=0.27"]
 dev = ["httpx>=0.27", "pytest"]
 
 [project.scripts]
@@ -23,6 +26,9 @@ washing_interface_service = "interface_service.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"interface_service.sim" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,5 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+from interface_service.sim.settings import SimSettings
 
 DEFAULT_SQUIDS = ["Squid1", "Squid2", "Squid4"]  # Squid3 is not used
 
@@ -24,10 +27,12 @@ class Settings:
     """Squid protocol imaging the cell coverage."""
     squid_project: str = "washing_optimization"
     """Squid project the images are stored under."""
-    simulate: bool = True
-    """Use the simulated backend instead of the real platform."""
-    sim_seconds_per_wash: float = 2.0
-    """Duration of one simulated wash."""
+    mode: Literal["platform", "sim", "dummy"] = "platform"
+    """platform: real cage2, sim: simulated cage2 with GUI, dummy: minimal backend for unit tests."""
+    sim: SimSettings = field(default_factory=SimSettings)
+    """Settings of the simulated cage2 (mode sim)."""
+    dummy_seconds_per_wash: float = 2.0
+    """Duration of one wash in the dummy backend."""
 
     @property
     def protocol_names(self) -> list[str]:

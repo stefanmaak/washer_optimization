@@ -18,8 +18,8 @@ def test_generated_source():
     source = generate_process_source("abc123", request, PARAMS)
     ast.parse(source)
 
-    assert "class WashOpt_abc123(BasicProcess)" in source
-    assert "set_start_position(self.hotel2, 1)" in source
+    assert "class WashOpt_abc123(WashingProcess)" in source
+    assert "self.plate.set_start_position(self.hotel2, 1)" in source
     assert "n_washes = 3" in source
     # 0 is done unconditionally before the loop, the last wash is always checked
     assert "coverage_checks = [1, 3]" in source

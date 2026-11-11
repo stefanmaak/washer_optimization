@@ -1,0 +1,29 @@
+# Minimal copy of cage2/lab_adaption/platform_config.yaml for the simulation:
+# only the devices used by the washing processes (no Squid3), Fridge with 1000 slots.
+sila_servers:
+    storage:
+        Hotel2:
+            capacity: 13
+    movers:
+        PFonRail:
+            capacity: 1
+    washers:
+        BlueWasher:
+            capacity: 1
+    fridges:
+        Fridge:
+            capacity: 1000
+    microscopes:
+        Squid1:
+            capacity: 1
+        Squid2:
+            capacity: 1
+        Squid4:
+            capacity: 1
+
+pythonlab_translation:
+    storage: LabwareStorageResource
+    movers: MoverServiceResource
+    fridges: LabwareStorageResource
+    microscopes: MicroscopeServiceResource
+    washers: WasherDispenserServiceResource
