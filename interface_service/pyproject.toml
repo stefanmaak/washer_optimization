@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "washing-interface-service"
+version = "0.1.0"
+description = "HTTP interface service for BlueWasher protocol optimization tests"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+client = ["httpx>=0.27"]
+platform = ["sila2>=0.12"]
+dev = ["httpx>=0.27", "pytest"]
+
+[project.scripts]
+washing_interface_service = "interface_service.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

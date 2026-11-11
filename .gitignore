@@ -1,0 +1,15 @@
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.pdf
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# interface service runtime data
+service_data/
