@@ -1,4 +1,5 @@
-"""Dash GUI of the simulated cage2: start/stop of mock Chris, Gantt chart of the execution, coverage of all runs."""
+"""Dash GUI of the simulated cage2: start/stop of mock Chris, Gantt chart of the execution, coverage of all runs and
+means per run."""
 
 import colorsys
 import logging
@@ -20,6 +21,7 @@ N_COLORS = 40
 FADE = 2.0  # seconds (real time) in which finished runs fade out of the Gantt chart
 REFRESH_MS = 250
 SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16]
+MAX_NON_EMPTY_WELLS = 10  # washes leaving more wells not emptied are crossed out
 # as in cage2's orchestrator config (lab_adaption/config.py)
 DEVICE_COLORS = {
     "PFonRail": "#d62728",
@@ -98,18 +100,61 @@ def coverage_figure(runs: list[SimRun]) -> go.Figure:
             text=[""] * (len(washes) - 1) + [f"run {run.number}"], textposition="middle right",
             textfont=dict(color=color), hovertemplate=f"run {run.number}<br>wash %{{x}}: %{{y:.1f}} %<extra></extra>",
         ))
-        if run.failed_empty_checks:
-            failed = run.failed_empty_checks
+        failed = [(wash, n) for wash, n in run.non_empty_wells if n > MAX_NON_EMPTY_WELLS]
+        if failed:
+            failed_washes, failed_counts = zip(*failed)
             fig.add_trace(go.Scatter(
-                x=failed, y=np.interp(failed, washes, coverage), mode="markers",
+                x=failed_washes, y=np.interp(failed_washes, washes, coverage), mode="markers",
                 marker=dict(symbol="x", size=10, color=color, line=dict(width=1, color="black")),
-                hovertemplate=f"run {run.number}<br>wash %{{x}}: wells not empty<extra></extra>",
+                customdata=failed_counts,
+                hovertemplate=f"run {run.number}<br>wash %{{x}}: %{{customdata}} wells not empty<extra></extra>",
             ))
     fig.update_xaxes(title="wash", dtick=1, rangemode="tozero")
     fig.update_yaxes(title="cell coverage [%]")
     fig.update_layout(
-        title="Coverage (× = wells not emptied)", height=480, margin=dict(l=70, r=20, t=40, b=40),
-        showlegend=False, uirevision="coverage",
+        title=f"Coverage (× = more than {MAX_NON_EMPTY_WELLS} wells not emptied)", height=480,
+        margin=dict(l=70, r=20, t=40, b=40), showlegend=False, uirevision="coverage",
+    )
+    return fig
+
+
+def measured_loss_per_wash(run: SimRun) -> float | None:
+    """Mean relative coverage loss per wash in percent, from the first and the last coverage check."""
+    if len(run.coverage_points) < 2:
+        return None
+    (first_wash, first), (last_wash, last) = run.coverage_points[0], run.coverage_points[-1]
+    if last_wash <= first_wash or first <= 0:
+        return None
+    return (1 - (last / first) ** (1 / (last_wash - first_wash))) * 100
+
+
+def run_summary_figure(runs: list[SimRun]) -> go.Figure:
+    """Per run: measured mean loss per wash (○, left axis) and mean non-empty wells per wash (×, right axis)."""
+    fig = go.Figure()
+    for run in runs:
+        color = run_color(run.number)
+        loss = measured_loss_per_wash(run)
+        if loss is not None:
+            fig.add_trace(go.Scatter(
+                x=[run.number], y=[loss], mode="markers",
+                marker=dict(symbol="circle-open", size=11, color=color, line=dict(width=2)),
+                hovertemplate=f"run {run.number}<br>loss per wash: %{{y:.2f}} %<extra></extra>",
+            ))
+        if run.non_empty_wells:
+            mean_non_empty = sum(n for _, n in run.non_empty_wells) / len(run.non_empty_wells)
+            fig.add_trace(go.Scatter(
+                x=[run.number], y=[mean_non_empty], mode="markers", yaxis="y2",
+                marker=dict(symbol="x", size=10, color=color, line=dict(width=1, color="black")),
+                hovertemplate=f"run {run.number}<br>non-empty wells per wash: %{{y:.1f}}<extra></extra>",
+            ))
+    fig.update_xaxes(title="run", rangemode="tozero")
+    fig.update_layout(
+        title="Mean over all washes of a run", height=420, margin=dict(l=70, r=70, t=40, b=40),
+        showlegend=False, uirevision="summary",
+        yaxis=dict(title="○ measured coverage loss per wash [%]", rangemode="tozero"),
+        yaxis2=dict(
+            title="× non-empty wells", overlaying="y", side="right", rangemode="tozero", showgrid=False, tickmode="auto",
+        ),
     )
     return fig
 
@@ -137,6 +182,7 @@ def create_gui(lab: SimLab, mock_chris: MockChris) -> Dash:
             ),
             dcc.Graph(id="gantt", config=dict(displayModeBar=False)),
             dcc.Graph(id="coverage"),
+            dcc.Graph(id="summary"),
             dcc.Interval(id="tick", interval=REFRESH_MS),
             dcc.Store(id="coverage-version", data=-1),
         ],
@@ -176,15 +222,17 @@ def create_gui(lab: SimLab, mock_chris: MockChris) -> Dash:
 
     @app.callback(
         Output("coverage", "figure"),
+        Output("summary", "figure"),
         Output("coverage-version", "data"),
         Input("tick", "n_intervals"),
         State("coverage-version", "data"),
     )
     def update_coverage(_n, shown_version):
         if lab.version == shown_version:
-            return no_update, no_update
+            return no_update, no_update, no_update
         version = lab.version
-        return coverage_figure(lab.runs_snapshot()), version
+        runs = lab.runs_snapshot()
+        return coverage_figure(runs), run_summary_figure(runs), version
 
     return app
 

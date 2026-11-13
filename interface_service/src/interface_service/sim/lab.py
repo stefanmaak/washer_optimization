@@ -4,8 +4,9 @@ Reused from the real system: the pythonLab reader and the scheduling structures 
 CP-Solver of labscheduler (Python API). Not reused: the orchestrator's worker, timers, database and SiLA parts.
 
 Execution: a step starts at its scheduled start once its predecessors are finished and runs for its fixed duration,
-so execution never deviates from the schedule. Adding a process triggers a rescheduling. While the scheduler computes,
-running steps finish but no new step starts; the new schedule starts after the computation time at the earliest.
+so execution never deviates from the schedule. Adding a process triggers a rescheduling, which is retried after a
+pause if it fails. While the scheduler computes, running steps finish but no new step starts; the new schedule starts
+after the computation time at the earliest.
 
 Time is simulation time (SimClock), which can run faster than real time. The scheduler always gets
 scheduling_time_limit seconds of real time, which is speed times as much simulation time. It computes in real time
@@ -13,8 +14,14 @@ scheduling_time_limit seconds of real time, which is speed times as much simulat
 time limit, the clock is held until the schedule arrives, so no step starts late.
 """
 
+import atexit
 import logging
+import os
 import random
+import shlex
+import shutil
+import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -45,6 +52,7 @@ from interface_service.sim.wash_model import evaluate
 logger = logging.getLogger(__name__)
 
 TICK = 0.01  # seconds (real time) between two iterations of the execution loop
+RESCHEDULE_RETRY_DELAY = 2.0  # seconds (real time) before a failed rescheduling is retried
 WASHER_TYPE = "WasherDispenserServiceResource"
 
 
@@ -56,9 +64,9 @@ class SimRun:
     process_name: str
     coverage: float = 100.0
     washes: int = 0
-    last_emptied: bool = True
+    last_non_empty_wells: int = 0
     coverage_points: list[tuple[int, float]] = field(default_factory=list)  # (washes done, coverage in %)
-    failed_empty_checks: list[int] = field(default_factory=list)  # washes done at a failed empty check
+    non_empty_wells: list[tuple[int, int]] = field(default_factory=list)  # (washes done, non-empty wells) per empty check
     finished_at: datetime | None = None
     finished_wall: float | None = None
     """time.monotonic() when the run finished (fading in the GUI happens in real time)."""
@@ -83,6 +91,7 @@ class SimLab:
         self.coverage_check_protocol = coverage_check_protocol
         self.rng = random.Random(settings.seed)
 
+        _python_on_path_is_this_interpreter()
         self.scheduler = Scheduler(algorithm="CP-Solver", labconfig_path="")
         self.scheduler.configure_job_shop(parse_jobshop_from_yaml_file(settings.lab_config.read_text()))
 
@@ -96,6 +105,7 @@ class SimLab:
         """Increases whenever measurements change (lets the GUI skip redrawing the coverage plot)."""
         self._active: list[SMProcess] = []
         self._reschedule_needed = False
+        self._retry_reschedule_at = 0.0  # time.monotonic()
         self._lock = threading.RLock()
 
     # --- used by the backend and the GUI -----------------------------------------------------------------------
@@ -142,7 +152,7 @@ class SimLab:
                     coverage=r.coverage,
                     washes=r.washes,
                     coverage_points=list(r.coverage_points),
-                    failed_empty_checks=list(r.failed_empty_checks),
+                    non_empty_wells=list(r.non_empty_wells),
                     finished_at=r.finished_at,
                 )
                 for r in self.runs.values()
@@ -200,7 +210,7 @@ class SimLab:
                 for step in process.steps:
                     if step.status == StepStatus.RUNNING and now >= step.start + timedelta(seconds=step.duration):
                         self._finish(step, now)
-            if self._reschedule_needed and not self.scheduling:
+            if self._reschedule_needed and not self.scheduling and time.monotonic() >= self._retry_reschedule_at:
                 self._reschedule_needed = False
                 self.scheduling = True
                 threading.Thread(target=self._reschedule, name="sim-scheduling", daemon=True).start()
@@ -226,11 +236,10 @@ class SimLab:
             result = evaluate(self.washer_protocols[protocol], self.settings.wash_model, self.rng)
             run.washes += 1
             run.coverage *= 1 - result.loss / 100
-            run.last_emptied = result.emptied
+            run.last_non_empty_wells = self.settings.wash_model.wells - result.empty_wells
         elif protocol == self.empty_check_protocol:
-            if not run.last_emptied:
-                run.failed_empty_checks.append(run.washes)
-                self.version += 1
+            run.non_empty_wells.append((run.washes, run.last_non_empty_wells))
+            self.version += 1
         elif protocol == self.coverage_check_protocol:
             run.coverage_points.append((run.washes, run.coverage))
             self.version += 1
@@ -256,17 +265,25 @@ class SimLab:
             schedule, quality = self.scheduler.compute_schedule(operations, computation_time)
             logger.info("scheduled %d operations in %.1f s: %s", len(operations), time.time() - start, quality.name)
             if schedule is None:
-                logger.error("the scheduler found no schedule")
+                logger.error("the scheduler found no schedule, retrying in %g s", RESCHEDULE_RETRY_DELAY)
+                self._retry_reschedule()
                 return
             with self._lock:
                 self.jssp.set_schedule(_orchestrator_schedule(schedule, shift))
         except Exception:
-            logger.exception("rescheduling failed")
+            logger.exception("rescheduling failed, retrying in %g s", RESCHEDULE_RETRY_DELAY)
+            self._retry_reschedule()
         finally:
             with self._lock:
                 self.scheduling = False
                 if self.clock.held:
                     self.clock.release()
+
+    def _retry_reschedule(self) -> None:
+        """Without a new schedule nothing would start until the next process is added."""
+        with self._lock:
+            self._reschedule_needed = True
+            self._retry_reschedule_at = time.monotonic() + RESCHEDULE_RETRY_DELAY
 
     def _scheduling_problem(self, shift: timedelta) -> list[Operation]:
         """Operations for all unfinished steps plus the finished steps they directly depend on (they tell where the
@@ -329,3 +346,24 @@ def _orchestrator_schedule(schedule, shift: timedelta) -> Schedule:
                 participating=dict(assign.machines_to_use),
             )
     return result
+
+
+def _python_on_path_is_this_interpreter() -> None:
+    """labscheduler's CP-Solver starts its worker process as "python" from PATH. Unless the venv of the simulation is
+    activated, that is another interpreter (without ortools) or none at all, and every scheduling fails. So a "python"
+    running this interpreter is put first on PATH (for the whole process). A wrapper script and not a symlink: a
+    symlink outside the venv would start the interpreter without the venv's packages."""
+    found = shutil.which("python")
+    if found is not None and os.path.abspath(found) == os.path.abspath(sys.executable):
+        return
+    if os.name == "nt":
+        bin_dir = os.path.dirname(sys.executable)  # contains python.exe, also in venvs
+    else:
+        bin_dir = tempfile.mkdtemp(prefix="washing-sim-python-")
+        atexit.register(shutil.rmtree, bin_dir, ignore_errors=True)
+        wrapper = os.path.join(bin_dir, "python")
+        with open(wrapper, "w") as f:
+            f.write(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+        os.chmod(wrapper, 0o755)
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    logger.info("CP-Solver worker runs on %s", sys.executable)

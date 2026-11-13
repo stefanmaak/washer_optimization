@@ -6,10 +6,12 @@ LAB_CONFIG = Path(__file__).with_name("platform_config.yaml")
 
 @dataclass
 class WashModelParameters:
+    wells: int = 384
+    """Wells of the plate."""
     empty_rpm: float = 1000.0
-    """Speed needed to empty the wells (GentleSpin)."""
+    """Speed needed to empty a well (GentleSpin)."""
     empty_rpm_noise: float = 50.0
-    """Standard deviation of the emptying threshold."""
+    """Standard deviation of the emptying threshold, rolled for every well independently."""
     safe_rpm: float = 1200.0
     """Speed the cells tolerate without extra loss (LightSpin, used for cell painting)."""
     min_loss: float = 2.0
