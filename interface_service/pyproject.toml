@@ -25,7 +25,7 @@ sim = [
     "pyyaml",
     "networkx",
     "httpx>=0.27",
-    "uulabscheduler",
+    "uulabscheduler[cpsolver]",
     "uulaborchestrator",
     "uuPythonlab",
     "bluewasher_sila @ git+https://gitlab.com/OpenLabAutomation/device-integration/bluewasher.git",
