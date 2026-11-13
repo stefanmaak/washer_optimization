@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 def random_protocol(rng: random.Random) -> str:
-    """One washing round: optionally prime, then 1-2 x (dispense, spin)."""
+    """One washing round: optionally prime, then one dispense and 1-2 spins."""
     channel = rng.randint(0, 6)
     steps = []
     if rng.random() < 0.3:
         steps.append(Prime(channel=channel, volume=rng.choice([10, 20, 50])))
+    steps.append(Dispense(channel=channel, volume=rng.randint(20, 100), pressure=rng.randint(1, 5)))
     for _ in range(rng.randint(1, 2)):
-        steps.append(Dispense(channel=channel, volume=rng.randint(20, 100), pressure=rng.randint(1, 5)))
         steps.append(Centrifugation(
             duration_in_ms=rng.randint(1, 20) * 1000,
             rpm=rng.choice([-1, 1]) * rng.randrange(400, 3501, 50),

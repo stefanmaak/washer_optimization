@@ -16,9 +16,20 @@ dependencies = [
 [project.optional-dependencies]
 client = ["httpx>=0.27"]
 platform = ["sila2>=0.12"]
-# --sim additionally needs labscheduler (CP-Solver), laborchestrator, pythonlab and bluewasher_sila (mock Chris)
-# from the lab automation workspace
-sim = ["dash>=2.14", "plotly>=5", "numpy", "pyyaml", "networkx", "httpx>=0.27"]
+# --sim needs labscheduler (CP-Solver), laborchestrator, pythonlab and bluewasher_sila (mock Chris);
+# bluewasher_sila is not on PyPI, so it is pulled from git
+sim = [
+    "dash>=2.14",
+    "plotly>=5",
+    "numpy",
+    "pyyaml",
+    "networkx",
+    "httpx>=0.27",
+    "uulabscheduler",
+    "uulaborchestrator",
+    "uuPythonlab",
+    "bluewasher_sila @ git+https://gitlab.com/OpenLabAutomation/device-integration/bluewasher.git",
+]
 dev = ["httpx>=0.27", "pytest"]
 
 [project.scripts]
